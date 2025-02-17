@@ -15,7 +15,7 @@ connection = pymysql.connect(
 )
 cursor = connection.cursor()
 
-es = Elasticsearch("elastic_add")
+es = Elasticsearch(os.getenv("elastic_add"))
 
 cursor.execute("""
     SELECT d.id, d.name, d.age, d.gender, d.weight, d.puppy_species, u.name as owner_name, u.email as owner_email
