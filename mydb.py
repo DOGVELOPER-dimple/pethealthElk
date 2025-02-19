@@ -1,5 +1,6 @@
 import pymysql
 from elasticsearch import Elasticsearch, helpers
+from elasticsearch_dsl import Search
 import os
 from dotenv import load_dotenv
 from fastapi import FastAPI
@@ -9,7 +10,6 @@ app = FastAPI()
 load_dotenv('db.env')
 
 
-#엘라스틱 삽입 
 @app.get("/bulk_data")
 async def bulk():
     connection = pymysql.connect(
@@ -22,117 +22,198 @@ async def bulk():
     cursor = connection.cursor()
     es = Elasticsearch(os.getenv("elastic_add"))
     
+    # 기존 인덱스 삭제 후 생성
     if es.indices.exists(index="dog_info"):
         es.indices.delete(index="dog_info")
     
     es.indices.create(index="dog_info", body={
-        "settings": {
-            "number_of_shards": 1,
-            "number_of_replicas": 1
-        },
+        "settings": {"number_of_shards": 1, "number_of_replicas": 1},
         "mappings": {
             "properties": {
                 "dog": {
                     "properties": {
-                    "id": { "type": "integer" },
-                    "name": { "type": "text" },
-                    "age": { "type": "integer" },
-                    "blood_type": { "type": "keyword" },
-                    "gender": { "type": "keyword" },
-                    "heartworm_vaccination_date": { "type": "date" },
-                    "height": { "type": "float" },
-                    "image": { "type": "keyword" },
-                    "is_neutered": { "type": "boolean" },
-                    "leg_length": { "type": "float" },
-                    "menstruation_cycle": { "type": "integer" },
-                    "menstruation_duration": { "type": "integer" },
-                    "menstruation_start_date": { "type": "date" },
-                    "puppy_species": { "type": "keyword" },
-                    "recent_checkup_date": { "type": "date" },
-                    "registration_number": { "type": "keyword" },
-                    "weight": { "type": "float" },
-                    "owner_name": { "type": "text" },
-                    "owner_email": { "type": "keyword" }
+                        "id": {"type": "integer"},
+                        "name": {"type": "text"},
+                        "age": {"type": "integer"},
+                        "blood_type": {"type": "keyword"},
+                        "gender": {"type": "keyword"},
+                        "heartworm_vaccination_date": {"type": "date"},
+                        "height": {"type": "float"},
+                        "image": {"type": "keyword"},
+                        "is_neutered": {"type": "boolean"},
+                        "leg_length": {"type": "float"},
+                        "menstruation_cycle": {"type": "integer"},
+                        "menstruation_duration": {"type": "integer"},
+                        "menstruation_start_date": {"type": "date"},
+                        "puppy_species": {"type": "keyword"},
+                        "recent_checkup_date": {"type": "date"},
+                        "registration_number": {"type": "keyword"},
+                        "weight": {"type": "float"},
+                        "owner_name": {"type": "text"},
+                        "owner_email": {"type": "keyword"}
                     }
                 },
                 "poop_logs": {
                     "type": "nested",
                     "properties": {
-                    "poop_time": { "type": "date" },
-                    "poop_type": { "type": "keyword" }
+                        "poop_time": {"type": "date"},
+                        "poop_type": {"type": "keyword"}
                     }
                 },
                 "food_intake": {
                     "type": "nested",
                     "properties": {
-                    "amount": { "type": "float" },
-                    "intake_time": { "type": "date" }
+                        "amount": {"type": "float"},
+                        "intake_time": {"type": "date"}
                     }
                 },
                 "walks": {
                     "type": "nested",
                     "properties": {
-                    "distance": { "type": "float" },
-                    "dog_consumable_calories": { "type": "float" },
-                    "end_time": { "type": "date" },
-                    "start_time": { "type": "date" },
-                    "user_consumable_calories": { "type": "float" }
+                        "distance": {"type": "float"},
+                        "dog_consumable_calories": {"type": "float"},
+                        "end_time": {"type": "date"},
+                        "start_time": {"type": "date"},
+                        "user_consumable_calories": {"type": "float"}
                     }
                 },
                 "walk_activities": {
                     "type": "nested",
                     "properties": {
-                    "bowel_movements": { "type": "integer" },
-                    "distance": { "type": "float" },
-                    "timestamp": { "type": "date" }
+                        "bowel_movements": {"type": "integer"},
+                        "distance": {"type": "float"},
+                        "timestamp": {"type": "date"}
                     }
                 }
             }
         }
-    }
-    )
+    })
 
+    # 개별 반려견 정보 가져오기
     cursor.execute("""
-        SELECT d.id, d.name, d.age, d.gender, d.weight, d.puppy_species, u.name as owner_name, u.email as owner_email
+        SELECT d.id, d.name, d.age, d.blood_type, d.gender, d.heartworm_vaccination_date, 
+               d.height, d.image, d.is_neutered, d.leg_length, d.menstruation_cycle, 
+               d.menstruation_duration, d.menstruation_start_date, d.puppy_species, 
+               d.recent_checkup_date, d.registration_number, d.weight, u.name AS owner_name, 
+               u.email AS owner_email
         FROM dog d
         JOIN user u ON d.user_id = u.id
     """)
 
-    rows = cursor.fetchall()
-    columns = [col[0] for col in cursor.description]
-    actions = [
-        {
+    dogs = cursor.fetchall()
+    dog_columns = [col[0] for col in cursor.description]
+    
+    actions = []
+
+    for dog in dogs:
+        dog_data = dict(zip(dog_columns, dog))
+
+        # 해당 반려견의 추가 데이터 (배변, 급여량, 산책 등) 가져오기
+        dog_id = dog_data["id"]
+
+        # 배변 기록
+        cursor.execute("SELECT poop_time, poop_type FROM dog_poop_log WHERE dog_id = %s", (dog_id,))
+        poop_logs = [dict(zip([col[0] for col in cursor.description], row)) for row in cursor.fetchall()]
+
+        # 급여량 기록
+        cursor.execute("SELECT amount, intake_time FROM food_intake WHERE dog_id = %s", (dog_id,))
+        food_intake = [dict(zip([col[0] for col in cursor.description], row)) for row in cursor.fetchall()]
+
+        # 산책 기록
+        cursor.execute("""
+            SELECT distance, dog_consumable_calories, end_time, start_time, user_consumable_calories 
+            FROM walk WHERE dog_id = %s
+        """, (dog_id,))
+        walks = [dict(zip([col[0] for col in cursor.description], row)) for row in cursor.fetchall()]
+
+        # 산책 활동 기록
+        cursor.execute("""
+            SELECT bowel_movements, distance, timestamp 
+            FROM walk_activity WHERE dog_id = %s
+        """, (dog_id,))
+        walk_activities = [dict(zip([col[0] for col in cursor.description], row)) for row in cursor.fetchall()]
+
+        # Elasticsearch 데이터 변환
+        doc = {
             "_index": "dog_info",
-            "_id": row[0],  # id 값을 엘라스틱 id
-            "_source": dict(zip(columns, row))
+            "_id": dog_data["id"],  
+            "_source": {
+                "dog": dog_data,
+                "poop_logs": poop_logs,
+                "food_intake": food_intake,
+                "walks": walks,
+                "walk_activities": walk_activities
+            }
         }
-        for row in rows
-    ]
-    helpers.bulk(es, actions)
+        actions.append(doc)
+
+    # Elasticsearch에 데이터 삽입
+    if actions:
+        helpers.bulk(es, actions)
+
     cursor.close()
     connection.close()
+    
     return {"message": "벌크 성공"}
 
 
 #배변 api
 @app.get("/poo/{dog_id}")
-async def deposit(dog_id: int):
-    return 
+async def get_poop_data(dog_id: int, field_name="poop_logs", size=10000):
+    es = Elasticsearch(os.getenv("elastic_add"))
+    
+    s = Search(using=es, index="dog_info").query("match", **{"dog.id": dog_id}).source([field_name]).extra(size=size)
+    
+    response = s.execute()
+    poop_data = []
+    for hit in response:
+        if field_name in hit:
+            poop_data.extend(hit[field_name])
+    return {"dog_id": dog_id, "poop_logs": poop_data}
 
 #이동거리 api
 @app.get("/walk/{dog_id}")
-async def deposit(dog_id: int):
-    return 
+async def get_walks_data(dog_id: int, field_name="walks", size=10000):
+    es = Elasticsearch(os.getenv("elastic_add"))
+    
+    s = Search(using=es, index="dog_info").query("match", **{"dog.id": dog_id}).source([field_name]).extra(size=size)
+    
+    response = s.execute()
+    walk_data = []
+    for hit in response:
+        if field_name in hit:
+            walks_data.extend(hit[field_name])
+    return {"dog_id": dog_id, "walks": walks_data}
+
 
 #급여량 api
-@app.get("/deposit/{dog_id}")
-async def deposit(dog_id: int):
-    return 
+@app.get("/food_intake/{dog_id}")
+async def get_walks_data(dog_id: int, field_name="food_intake", size=10000):
+    es = Elasticsearch(os.getenv("elastic_add"))
+    
+    s = Search(using=es, index="dog_info").query("match", **{"dog.id": dog_id}).source([field_name]).extra(size=size)
+    
+    response = s.execute()
+    walk_data = []
+    for hit in response:
+        if field_name in hit:
+            food_intake_data.extend(hit[field_name])
+    return {"dog_id": dog_id, "walks": food_intake_data}
 
 #생리추적 api
-@app.get("/deposit/{dog_id}")
-async def deposit(dog_id: int):
-    return 
+@app.get("/walk/{dog_id}")
+async def get_walks_data(dog_id: int, field_name="walks", size=10000):
+    es = Elasticsearch(os.getenv("elastic_add"))
+    
+    s = Search(using=es, index="dog_info").query("match", **{"dog.id": dog_id}).source([field_name]).extra(size=size)
+    
+    response = s.execute()
+    walk_data = []
+    for hit in response:
+        if field_name in hit:
+            walks_data.extend(hit[field_name])
+    return {"dog_id": dog_id, "walks": walks_data}
+
 
 #주간 리포트 api
 @app.get("/deposit/{dog_id}")
