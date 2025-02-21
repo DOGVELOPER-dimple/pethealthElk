@@ -201,22 +201,34 @@ async def get_walks_data(dog_id: int, field_name="food_intake", size=10000):
     return {"dog_id": dog_id, "walks": food_intake_data}
 
 #생리추적 api
-@app.get("/walk/{dog_id}")
-async def get_walks_data(dog_id: int, field_name="walks", size=10000):
+@app.get("/menstruation/{dog_id}")
+async def get_menstruation_data(dog_id: int, size=10000):
     es = Elasticsearch(os.getenv("elastic_add"))
+
+    fields = ["dog.menstruation_cycle", "dog.menstruation_duration", "dog.menstruation_start_date"]
     
-    s = Search(using=es, index="dog_info").query("match", **{"dog.id": dog_id}).source([field_name]).extra(size=size)
+    s = Search(using=es, index="dog_info").query("match", **{"dog.id": dog_id}).source(fields).extra(size=size)
     
     response = s.execute()
-    walk_data = []
+    menstruation_data = []
+    
     for hit in response:
-        if field_name in hit:
-            walks_data.extend(hit[field_name])
-    return {"dog_id": dog_id, "walks": walks_data}
+        menstruation_info = {
+            "menstruation_cycle": hit["dog"]["menstruation_cycle"] if "dog" in hit and "menstruation_cycle" in hit["dog"] else None,
+            "menstruation_duration": hit["dog"]["menstruation_duration"] if "dog" in hit and "menstruation_duration" in hit["dog"] else None,
+            "menstruation_start_date": hit["dog"]["menstruation_start_date"] if "dog" in hit and "menstruation_start_date" in hit["dog"] else None
+        }
+        menstruation_data.append(menstruation_info)
+
+    return {
+        "dog_id": dog_id,
+        "menstruation_info": menstruation_data
+    }
+
 
 
 #주간 리포트 api
-@app.get("/deposit/{dog_id}")
+@app.get("/week_report/{dog_id}")
 async def deposit(dog_id: int):
     return 
 
