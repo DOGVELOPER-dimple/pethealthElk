@@ -107,6 +107,8 @@ async def bulk():
 
     for dog in dogs:
         dog_data = dict(zip(dog_columns, dog))
+        # is_neutered 필드 변환: bytes -> boolean
+        dog_data["is_neutered"] = True if dog_data["is_neutered"] == b'\x01' else False
 
         # 해당 반려견의 추가 데이터 (배변, 급여량, 산책 등) 가져오기
         dog_id = dog_data["id"]
@@ -136,7 +138,7 @@ async def bulk():
         # Elasticsearch 데이터 변환
         doc = {
             "_index": "dog_info",
-            "_id": dog_data["id"],  
+            "_id": dog_data["id"],
             "_source": {
                 "dog": dog_data,
                 "poop_logs": poop_logs,
@@ -157,7 +159,7 @@ async def bulk():
     return {"message": "벌크 성공"}
 
 
-#배변 api
+# 배변 API
 @app.get("/poo/{dog_id}")
 async def get_poop_data(dog_id: int, field_name="poop_logs", size=10000):
     es = Elasticsearch(os.getenv("elastic_add"))
@@ -171,7 +173,8 @@ async def get_poop_data(dog_id: int, field_name="poop_logs", size=10000):
             poop_data.extend(hit[field_name])
     return {"dog_id": dog_id, "poop_logs": poop_data}
 
-#이동거리 api
+
+# 산책 기록 API
 @app.get("/walk/{dog_id}")
 async def get_walks_data(dog_id: int, field_name="walks", size=10000):
     es = Elasticsearch(os.getenv("elastic_add"))
@@ -179,28 +182,29 @@ async def get_walks_data(dog_id: int, field_name="walks", size=10000):
     s = Search(using=es, index="dog_info").query("match", **{"dog.id": dog_id}).source([field_name]).extra(size=size)
     
     response = s.execute()
-    walk_data = []
+    walk_data = []  # 변수 이름 일관성 유지
     for hit in response:
         if field_name in hit:
-            walks_data.extend(hit[field_name])
-    return {"dog_id": dog_id, "walks": walks_data}
+            walk_data.extend(hit[field_name])
+    return {"dog_id": dog_id, "walks": walk_data}
 
 
-#급여량 api
+# 급여량 기록 API
 @app.get("/food_intake/{dog_id}")
-async def get_walks_data(dog_id: int, field_name="food_intake", size=10000):
+async def get_food_intake_data(dog_id: int, field_name="food_intake", size=10000):
     es = Elasticsearch(os.getenv("elastic_add"))
     
     s = Search(using=es, index="dog_info").query("match", **{"dog.id": dog_id}).source([field_name]).extra(size=size)
     
     response = s.execute()
-    walk_data = []
+    food_intake_data = []  # 변수 이름 수정
     for hit in response:
         if field_name in hit:
             food_intake_data.extend(hit[field_name])
-    return {"dog_id": dog_id, "walks": food_intake_data}
+    return {"dog_id": dog_id, "food_intake": food_intake_data}
 
-#생리추적 api
+
+# 생리 추적 API
 @app.get("/menstruation/{dog_id}")
 async def get_menstruation_data(dog_id: int, size=10000):
     es = Elasticsearch(os.getenv("elastic_add"))
@@ -226,11 +230,11 @@ async def get_menstruation_data(dog_id: int, size=10000):
     }
 
 
-
-#주간 리포트 api
+# 주간 리포트 API (예시로 간단한 메시지 반환)
 @app.get("/week_report/{dog_id}")
-async def deposit(dog_id: int):
-    return 
+async def get_week_report(dog_id: int):
+    # 주간 리포트 관련 로직을 추가하세요.
+    return {"dog_id": dog_id, "report": "주간 리포트 기능은 아직 구현되지 않았습니다."}
 
 
 
